@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const hoisted = vi.hoisted(() => {
   const callOrder: string[] = [];
   const client = { id: "matrix-client" };
+  let startClientError: Error | null = null;
   const resolveTextChunkLimit = vi.fn<
     (cfg: unknown, channel: unknown, accountId?: unknown) => number
   >(() => 4000);
@@ -13,11 +14,16 @@ const hoisted = vi.hoisted(() => {
     debug: vi.fn(),
   };
   const stopThreadBindingManager = vi.fn();
+  const stopSharedClientForAccount = vi.fn();
+  const setActiveMatrixClient = vi.fn();
   return {
     callOrder,
     client,
     logger,
     resolveTextChunkLimit,
+    setActiveMatrixClient,
+    startClientError,
+    stopSharedClientForAccount,
     stopThreadBindingManager,
   };
 });
@@ -87,7 +93,7 @@ vi.mock("../accounts.js", () => ({
 }));
 
 vi.mock("../active-client.js", () => ({
-  setActiveMatrixClient: vi.fn(),
+  setActiveMatrixClient: hoisted.setActiveMatrixClient,
 }));
 
 vi.mock("../client.js", () => ({
@@ -111,10 +117,13 @@ vi.mock("../client.js", () => ({
     if (!hoisted.callOrder.includes("create-manager")) {
       throw new Error("Matrix client started before thread bindings were registered");
     }
+    if (hoisted.startClientError) {
+      throw hoisted.startClientError;
+    }
     hoisted.callOrder.push("start-client");
     return hoisted.client;
   }),
-  stopSharedClientForAccount: vi.fn(),
+  stopSharedClientForAccount: hoisted.stopSharedClientForAccount,
 }));
 
 vi.mock("../config-update.js", () => ({
@@ -191,7 +200,10 @@ describe("monitorMatrixProvider", () => {
   beforeEach(() => {
     vi.resetModules();
     hoisted.callOrder.length = 0;
+    hoisted.startClientError = null;
     hoisted.resolveTextChunkLimit.mockReset().mockReturnValue(4000);
+    hoisted.setActiveMatrixClient.mockReset();
+    hoisted.stopSharedClientForAccount.mockReset();
     hoisted.stopThreadBindingManager.mockReset();
     Object.values(hoisted.logger).forEach((mock) => mock.mockReset());
   });
@@ -224,5 +236,17 @@ describe("monitorMatrixProvider", () => {
       "matrix",
       "default",
     );
+  });
+
+  it("cleans up thread bindings and shared clients when startup fails", async () => {
+    const { monitorMatrixProvider } = await import("./index.js");
+    hoisted.startClientError = new Error("start failed");
+
+    await expect(monitorMatrixProvider()).rejects.toThrow("start failed");
+
+    expect(hoisted.stopThreadBindingManager).toHaveBeenCalledTimes(1);
+    expect(hoisted.stopSharedClientForAccount).toHaveBeenCalledTimes(1);
+    expect(hoisted.setActiveMatrixClient).toHaveBeenNthCalledWith(1, hoisted.client, "default");
+    expect(hoisted.setActiveMatrixClient).toHaveBeenNthCalledWith(2, null, "default");
   });
 });

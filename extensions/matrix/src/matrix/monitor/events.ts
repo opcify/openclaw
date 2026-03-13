@@ -15,6 +15,21 @@ function formatMatrixSelfDecryptionHint(accountId: string): string {
   );
 }
 
+async function resolveMatrixSelfUserId(
+  client: MatrixClient,
+  logVerboseMessage: (message: string) => void,
+): Promise<string | null> {
+  if (typeof client.getUserId !== "function") {
+    return null;
+  }
+  try {
+    return (await client.getUserId()) ?? null;
+  } catch (err) {
+    logVerboseMessage(`matrix: failed resolving self user id for decrypt warning: ${String(err)}`);
+    return null;
+  }
+}
+
 export function registerMatrixMonitorEvents(params: {
   cfg: CoreConfig;
   client: MatrixClient;
@@ -68,8 +83,7 @@ export function registerMatrixMonitorEvents(params: {
   client.on(
     "room.failed_decryption",
     async (roomId: string, event: MatrixRawEvent, error: Error) => {
-      const selfUserId =
-        typeof client.getUserId === "function" ? ((await client.getUserId()) ?? null) : null;
+      const selfUserId = await resolveMatrixSelfUserId(client, logVerboseMessage);
       const sender = typeof event.sender === "string" ? event.sender : null;
       const senderMatchesOwnUser = Boolean(selfUserId && sender && selfUserId === sender);
       logger.warn("Failed to decrypt message", {

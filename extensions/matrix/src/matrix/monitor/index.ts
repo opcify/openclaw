@@ -129,6 +129,20 @@ export async function monitorMatrixProvider(opts: MonitorMatrixOpts = {}): Promi
     accountId: auth.accountId,
   });
   setActiveMatrixClient(client, auth.accountId);
+  let cleanedUp = false;
+  let threadBindingManager: { accountId: string; stop: () => void } | null = null;
+  const cleanup = () => {
+    if (cleanedUp) {
+      return;
+    }
+    cleanedUp = true;
+    try {
+      threadBindingManager?.stop();
+    } finally {
+      stopSharedClientForAccount(auth);
+      setActiveMatrixClient(null, auth.accountId);
+    }
+  };
 
   const mentionRegexes = core.channel.mentions.buildMentionRegexes(cfg);
   const defaultGroupPolicy = resolveDefaultGroupPolicy(cfg);
@@ -200,74 +214,74 @@ export async function monitorMatrixProvider(opts: MonitorMatrixOpts = {}): Promi
     needsRoomAliasesForConfig,
   });
 
-  const threadBindingManager = await createMatrixThreadBindingManager({
-    accountId: account.accountId,
-    auth,
-    client,
-    env: process.env,
-    idleTimeoutMs: threadBindingIdleTimeoutMs,
-    maxAgeMs: threadBindingMaxAgeMs,
-    logVerboseMessage,
-  });
-  logVerboseMessage(
-    `matrix: thread bindings ready account=${threadBindingManager.accountId} idleMs=${threadBindingIdleTimeoutMs} maxAgeMs=${threadBindingMaxAgeMs}`,
-  );
+  try {
+    threadBindingManager = await createMatrixThreadBindingManager({
+      accountId: account.accountId,
+      auth,
+      client,
+      env: process.env,
+      idleTimeoutMs: threadBindingIdleTimeoutMs,
+      maxAgeMs: threadBindingMaxAgeMs,
+      logVerboseMessage,
+    });
+    logVerboseMessage(
+      `matrix: thread bindings ready account=${threadBindingManager.accountId} idleMs=${threadBindingIdleTimeoutMs} maxAgeMs=${threadBindingMaxAgeMs}`,
+    );
 
-  registerMatrixMonitorEvents({
-    cfg,
-    client,
-    auth,
-    directTracker,
-    logVerboseMessage,
-    warnedEncryptedRooms,
-    warnedCryptoMissingRooms,
-    logger,
-    formatNativeDependencyHint: core.system.formatNativeDependencyHint,
-    onRoomMessage: handleRoomMessage,
-  });
+    registerMatrixMonitorEvents({
+      cfg,
+      client,
+      auth,
+      directTracker,
+      logVerboseMessage,
+      warnedEncryptedRooms,
+      warnedCryptoMissingRooms,
+      logger,
+      formatNativeDependencyHint: core.system.formatNativeDependencyHint,
+      onRoomMessage: handleRoomMessage,
+    });
 
-  // Register Matrix thread bindings before the client starts syncing so threaded
-  // commands during startup never observe Matrix as "unavailable".
-  logVerboseMessage("matrix: starting client");
-  await resolveSharedMatrixClient({
-    cfg,
-    auth: authWithLimit,
-    accountId: auth.accountId,
-  });
-  logVerboseMessage("matrix: client started");
+    // Register Matrix thread bindings before the client starts syncing so threaded
+    // commands during startup never observe Matrix as "unavailable".
+    logVerboseMessage("matrix: starting client");
+    await resolveSharedMatrixClient({
+      cfg,
+      auth: authWithLimit,
+      accountId: auth.accountId,
+    });
+    logVerboseMessage("matrix: client started");
 
-  // Shared client is already started via resolveSharedMatrixClient.
-  logger.info(`matrix: logged in as ${auth.userId}`);
+    // Shared client is already started via resolveSharedMatrixClient.
+    logger.info(`matrix: logged in as ${auth.userId}`);
 
-  await runMatrixStartupMaintenance({
-    client,
-    auth,
-    accountId: account.accountId,
-    effectiveAccountId,
-    accountConfig,
-    logger,
-    logVerboseMessage,
-    loadConfig: () => core.config.loadConfig() as CoreConfig,
-    writeConfigFile: async (nextCfg) => await core.config.writeConfigFile(nextCfg),
-    loadWebMedia: async (url, maxBytes) => await core.media.loadWebMedia(url, maxBytes),
-    env: process.env,
-  });
+    await runMatrixStartupMaintenance({
+      client,
+      auth,
+      accountId: account.accountId,
+      effectiveAccountId,
+      accountConfig,
+      logger,
+      logVerboseMessage,
+      loadConfig: () => core.config.loadConfig() as CoreConfig,
+      writeConfigFile: async (nextCfg) => await core.config.writeConfigFile(nextCfg),
+      loadWebMedia: async (url, maxBytes) => await core.media.loadWebMedia(url, maxBytes),
+      env: process.env,
+    });
 
-  await new Promise<void>((resolve) => {
-    const onAbort = () => {
-      try {
-        threadBindingManager.stop();
+    await new Promise<void>((resolve) => {
+      const onAbort = () => {
         logVerboseMessage("matrix: stopping client");
-        stopSharedClientForAccount(auth);
-      } finally {
-        setActiveMatrixClient(null, auth.accountId);
+        cleanup();
         resolve();
+      };
+      if (opts.abortSignal?.aborted) {
+        onAbort();
+        return;
       }
-    };
-    if (opts.abortSignal?.aborted) {
-      onAbort();
-      return;
-    }
-    opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
-  });
+      opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
+    });
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
 }

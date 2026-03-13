@@ -21,6 +21,7 @@ function createHarness(params?: {
   authEncryption?: boolean;
   cryptoAvailable?: boolean;
   selfUserId?: string;
+  selfUserIdError?: Error;
   joinedMembersByRoom?: Record<string, string[]>;
   verifications?: Array<{
     id: string;
@@ -44,13 +45,19 @@ function createHarness(params?: {
   const invalidateRoom = vi.fn();
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const formatNativeDependencyHint = vi.fn(() => "install hint");
+  const logVerboseMessage = vi.fn();
   const client = {
     on: vi.fn((eventName: string, listener: (...args: unknown[]) => void) => {
       listeners.set(eventName, listener);
       return client;
     }),
     sendMessage,
-    getUserId: vi.fn(async () => params?.selfUserId ?? "@bot:example.org"),
+    getUserId: vi.fn(async () => {
+      if (params?.selfUserIdError) {
+        throw params.selfUserIdError;
+      }
+      return params?.selfUserId ?? "@bot:example.org";
+    }),
     getJoinedRoomMembers: vi.fn(
       async (roomId: string) =>
         params?.joinedMembersByRoom?.[roomId] ?? ["@bot:example.org", "@alice:example.org"],
@@ -74,7 +81,7 @@ function createHarness(params?: {
     directTracker: {
       invalidateRoom,
     },
-    logVerboseMessage: vi.fn(),
+    logVerboseMessage,
     warnedEncryptedRooms: new Set<string>(),
     warnedCryptoMissingRooms: new Set<string>(),
     logger,
@@ -95,6 +102,7 @@ function createHarness(params?: {
     listVerifications,
     logger,
     formatNativeDependencyHint,
+    logVerboseMessage,
     roomMessageListener: listeners.get("room.message") as RoomEventListener | undefined,
     failedDecryptListener: listeners.get("room.failed_decryption") as
       | FailedDecryptListener
@@ -590,6 +598,43 @@ describe("registerMatrixMonitorEvents verification routing", () => {
         sender: "@alice:matrix.example.org",
         senderMatchesOwnUser: false,
       }),
+    );
+  });
+
+  it("does not throw when getUserId fails during decrypt guidance lookup", async () => {
+    const { logger, logVerboseMessage, failedDecryptListener } = createHarness({
+      accountId: "ops",
+      selfUserIdError: new Error("lookup failed"),
+    });
+    if (!failedDecryptListener) {
+      throw new Error("room.failed_decryption listener was not registered");
+    }
+
+    await expect(
+      failedDecryptListener(
+        "!room:example.org",
+        {
+          event_id: "$enc-lookup-fail",
+          sender: "@gumadeiras:matrix.example.org",
+          type: EventType.RoomMessageEncrypted,
+          origin_server_ts: Date.now(),
+          content: {},
+        },
+        new Error("The sender's device has not sent us the keys for this message."),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Failed to decrypt message",
+      expect.objectContaining({
+        roomId: "!room:example.org",
+        eventId: "$enc-lookup-fail",
+        senderMatchesOwnUser: false,
+      }),
+    );
+    expect(logVerboseMessage).toHaveBeenCalledWith(
+      "matrix: failed resolving self user id for decrypt warning: Error: lookup failed",
     );
   });
 });

@@ -150,6 +150,57 @@ describe("normalizeReplyPayload", () => {
     expect(result!.text).toBe("");
     expect(result!.mediaUrl).toBe("https://example.com/img.png");
   });
+
+  it("applies responsePrefix before compiling Slack directives into blocks", () => {
+    const result = normalizeReplyPayload(
+      {
+        text: "hello [[slack_buttons: Retry:retry, Ignore:ignore]]",
+      },
+      { responsePrefix: "[bot]" },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("[bot] hello");
+    expect(result!.channelData).toEqual({
+      slack: {
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: "[bot] hello",
+            },
+          },
+          {
+            type: "actions",
+            block_id: "openclaw_reply_buttons_1",
+            elements: [
+              {
+                type: "button",
+                action_id: "openclaw:reply_button",
+                text: {
+                  type: "plain_text",
+                  text: "Retry",
+                  emoji: true,
+                },
+                value: "retry",
+              },
+              {
+                type: "button",
+                action_id: "openclaw:reply_button",
+                text: {
+                  type: "plain_text",
+                  text: "Ignore",
+                  emoji: true,
+                },
+                value: "ignore",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
 });
 
 describe("typing controller", () => {

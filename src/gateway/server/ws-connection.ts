@@ -9,6 +9,7 @@ import { isWebchatClient } from "../../utils/message-channel.js";
 import type { AuthRateLimiter } from "../auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "../auth.js";
 import { isLoopbackAddress } from "../net.js";
+import { destroyGatewayPtySessionsForConn } from "../pty-manager.js";
 import { getHandshakeTimeoutMs } from "../server-constants.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
 import { formatError } from "../server-utils.js";
@@ -241,6 +242,9 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       if (client?.presenceKey) {
         upsertPresence(client.presenceKey, { reason: "disconnect" });
         broadcastPresenceSnapshot({ broadcast, incrementPresenceVersion, getHealthVersion });
+      }
+      if (client?.connId) {
+        destroyGatewayPtySessionsForConn(client.connId);
       }
       if (client?.connect?.role === "node") {
         const context = buildRequestContext();

@@ -117,6 +117,13 @@ openclaw health
 ### Common footguns
 
 - **Wrong port:** Gateway WS defaults to `ws://127.0.0.1:18789`; keep app + CLI on the same port.
+- **Remote PTY limits:** the Gateway remote terminal now enforces env-configurable limits.
+  - `OPENCLAW_PTY_MAX_SESSIONS_PER_OWNER` (default `4`)
+  - `OPENCLAW_PTY_MAX_TOTAL_SESSIONS` (default `32`)
+  - `OPENCLAW_PTY_MAX_INPUT_CHUNK_BYTES` (default `65536`)
+  - `OPENCLAW_PTY_MIN_COLS` / `OPENCLAW_PTY_MAX_COLS` (defaults `20` / `500`)
+  - `OPENCLAW_PTY_MIN_ROWS` / `OPENCLAW_PTY_MAX_ROWS` (defaults `5` / `200`)
+  - `OPENCLAW_PTY_IDLE_TIMEOUT_MS` / `OPENCLAW_PTY_IDLE_SWEEP_INTERVAL_MS` (defaults `1800000` / `60000`)
 - **Where state lives:**
   - Credentials: `~/.openclaw/credentials/`
   - Sessions: `~/.openclaw/agents/<agentId>/sessions/`

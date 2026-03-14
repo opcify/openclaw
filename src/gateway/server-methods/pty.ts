@@ -1,12 +1,13 @@
+import { ErrorCodes, errorShape } from "../protocol/index.js";
 import {
   assertGatewayPtyOwnership,
   createGatewayPtySession,
   destroyGatewayPtySession,
+  GatewayPtyError,
   listGatewayPtySessionsByOwner,
   resizeGatewayPtySession,
   writeGatewayPtySession,
 } from "../pty-manager.js";
-import { ErrorCodes, errorShape } from "../protocol/index.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
 function getPtyOwner(client: { connect?: { device?: { id?: string } }; connId?: string } | null): {
@@ -16,7 +17,10 @@ function getPtyOwner(client: { connect?: { device?: { id?: string } }; connId?: 
 } {
   const connId = client?.connId?.trim();
   if (!connId) {
-    throw new Error("PTY requires an authenticated gateway connection");
+    throw new GatewayPtyError(
+      "PTY_INVALID_ARGS",
+      "PTY requires an authenticated gateway connection",
+    );
   }
   const deviceId = client?.connect?.device?.id?.trim() || undefined;
   return {
@@ -38,6 +42,25 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function mapPtyError(error: unknown) {
+  if (error instanceof GatewayPtyError) {
+    switch (error.code) {
+      case "PTY_NOT_FOUND":
+        return errorShape(ErrorCodes.NOT_FOUND, error.message);
+      case "PTY_ACCESS_DENIED":
+        return errorShape(ErrorCodes.FORBIDDEN, error.message);
+      case "PTY_LIMIT_REACHED":
+        return errorShape(ErrorCodes.RESOURCE_LIMIT, error.message);
+      case "PTY_INPUT_TOO_LARGE":
+        return errorShape(ErrorCodes.PAYLOAD_TOO_LARGE, error.message);
+      case "PTY_INVALID_ARGS":
+      default:
+        return invalidParams(error.message);
+    }
+  }
+  return invalidParams(error instanceof Error ? error.message : String(error));
+}
+
 export const ptyHandlers: GatewayRequestHandlers = {
   "pty.create": async ({ client, params, respond, context }) => {
     try {
@@ -57,7 +80,7 @@ export const ptyHandlers: GatewayRequestHandlers = {
       });
       respond(true, { sessionId: session.sessionId, cwd: session.cwd, shell: session.shell });
     } catch (error) {
-      respond(false, undefined, invalidParams(error instanceof Error ? error.message : String(error)));
+      respond(false, undefined, mapPtyError(error));
     }
   },
   "pty.write": ({ client, params, respond }) => {
@@ -70,14 +93,14 @@ export const ptyHandlers: GatewayRequestHandlers = {
         return;
       }
       if (typeof data !== "string") {
-        respond(false, undefined, invalidParams("pty.write requires data"));
+        respond(false, undefined, invalidParams("pty.write requires string data"));
         return;
       }
       assertGatewayPtyOwnership({ sessionId, ownerKey: owner.ownerKey, connId: owner.connId });
       writeGatewayPtySession(sessionId, data);
       respond(true, { ok: true });
     } catch (error) {
-      respond(false, undefined, invalidParams(error instanceof Error ? error.message : String(error)));
+      respond(false, undefined, mapPtyError(error));
     }
   },
   "pty.resize": ({ client, params, respond }) => {
@@ -92,7 +115,7 @@ export const ptyHandlers: GatewayRequestHandlers = {
       resizeGatewayPtySession(sessionId, asNumber(params.cols), asNumber(params.rows));
       respond(true, { ok: true });
     } catch (error) {
-      respond(false, undefined, invalidParams(error instanceof Error ? error.message : String(error)));
+      respond(false, undefined, mapPtyError(error));
     }
   },
   "pty.kill": ({ client, params, respond }) => {
@@ -107,30 +130,22 @@ export const ptyHandlers: GatewayRequestHandlers = {
       destroyGatewayPtySession(sessionId);
       respond(true, { ok: true });
     } catch (error) {
-      respond(false, undefined, invalidParams(error instanceof Error ? error.message : String(error)));
+      respond(false, undefined, mapPtyError(error));
     }
   },
   "pty.list": ({ client, respond }) => {
     try {
       const owner = getPtyOwner(client);
-      const sessions = listGatewayPtySessionsByOwner(owner.ownerKey).map((session) => {
-        const current = assertGatewayPtyOwnership({
-          sessionId: session.sessionId,
-          ownerKey: owner.ownerKey,
-          connId: owner.connId,
-        });
-        return {
-          sessionId: current.sessionId,
-          shell: current.shell,
-          cwd: current.cwd,
-          cols: current.cols,
-          rows: current.rows,
-          createdAt: current.createdAt,
-        };
-      });
+      const sessions = listGatewayPtySessionsByOwner(owner.ownerKey).map((session) => ({
+        sessionId: session.sessionId,
+        createdAt: session.createdAt,
+        lastActive: session.lastActive,
+        cols: session.cols,
+        rows: session.rows,
+      }));
       respond(true, { sessions });
     } catch (error) {
-      respond(false, undefined, invalidParams(error instanceof Error ? error.message : String(error)));
+      respond(false, undefined, mapPtyError(error));
     }
   },
 };

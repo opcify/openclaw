@@ -241,6 +241,27 @@ describe("resolveMatrixConfig", () => {
     expect(resolved.deviceId).toBeUndefined();
   });
 
+  it("does not inherit the base userId for non-default accounts", () => {
+    const cfg = {
+      channels: {
+        matrix: {
+          homeserver: "https://base.example.org",
+          userId: "@base:example.org",
+          accessToken: "base-token",
+          accounts: {
+            ops: {
+              homeserver: "https://ops.example.org",
+              accessToken: "ops-token",
+            },
+          },
+        },
+      },
+    } as CoreConfig;
+
+    const resolved = resolveMatrixConfigForAccount(cfg, "ops", {} as NodeJS.ProcessEnv);
+    expect(resolved.userId).toBe("");
+  });
+
   it("rejects insecure public http Matrix homeservers", () => {
     expect(() => validateMatrixHomeserverUrl("http://matrix.example.org")).toThrow(
       "Matrix homeserver must use https:// unless it targets a private or loopback host",
@@ -424,6 +445,38 @@ describe("resolveMatrixAuth", () => {
       expect.any(Object),
       "default",
     );
+  });
+
+  it("resolves token-only non-default account userId from whoami instead of inheriting the base user", async () => {
+    const doRequestSpy = vi.spyOn(sdkModule.MatrixClient.prototype, "doRequest").mockResolvedValue({
+      user_id: "@ops:example.org",
+      device_id: "OPSDEVICE",
+    });
+
+    const cfg = {
+      channels: {
+        matrix: {
+          userId: "@base:example.org",
+          homeserver: "https://matrix.example.org",
+          accounts: {
+            ops: {
+              homeserver: "https://matrix.example.org",
+              accessToken: "ops-token",
+            },
+          },
+        },
+      },
+    } as CoreConfig;
+
+    const auth = await resolveMatrixAuth({
+      cfg,
+      env: {} as NodeJS.ProcessEnv,
+      accountId: "ops",
+    });
+
+    expect(doRequestSpy).toHaveBeenCalledWith("GET", "/_matrix/client/v3/account/whoami");
+    expect(auth.userId).toBe("@ops:example.org");
+    expect(auth.deviceId).toBe("OPSDEVICE");
   });
 
   it("resolves missing whoami identity fields for token auth", async () => {

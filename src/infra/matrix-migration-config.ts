@@ -10,6 +10,7 @@ import {
   resolveMatrixChannelConfig,
   resolveMatrixDefaultOrOnlyAccountId,
 } from "./matrix-account-selection.js";
+import { getMatrixScopedEnvVarNames } from "./matrix-env-vars.js";
 import {
   resolveMatrixAccountStorageRoot,
   resolveMatrixCredentialsPath,
@@ -41,13 +42,6 @@ function clean(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function resolveMatrixEnvAccountToken(accountId: string): string {
-  return normalizeAccountId(accountId)
-    .replace(/[^a-z0-9]+/gi, "_")
-    .replace(/^_+|_+$/g, "")
-    .toUpperCase();
-}
-
 function resolveScopedMatrixEnvConfig(
   accountId: string,
   env: NodeJS.ProcessEnv,
@@ -56,11 +50,11 @@ function resolveScopedMatrixEnvConfig(
   userId: string;
   accessToken: string;
 } {
-  const token = resolveMatrixEnvAccountToken(accountId);
+  const keys = getMatrixScopedEnvVarNames(accountId);
   return {
-    homeserver: clean(env[`MATRIX_${token}_HOMESERVER`]),
-    userId: clean(env[`MATRIX_${token}_USER_ID`]),
-    accessToken: clean(env[`MATRIX_${token}_ACCESS_TOKEN`]),
+    homeserver: clean(env[keys.homeserver]),
+    userId: clean(env[keys.userId]),
+    accessToken: clean(env[keys.accessToken]),
   };
 }
 

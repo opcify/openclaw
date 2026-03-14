@@ -136,4 +136,34 @@ describe("resolveMatrixMigrationAccountTarget", () => {
       expect(target).toBeNull();
     });
   });
+
+  it("uses the same scoped env token encoding as runtime account auth", async () => {
+    await withTempHome(async () => {
+      const cfg: OpenClawConfig = {
+        channels: {
+          matrix: {
+            accounts: {
+              "ops-prod": {},
+            },
+          },
+        },
+      };
+      const env = {
+        MATRIX_OPS_X2D_PROD_HOMESERVER: "https://matrix.example.org",
+        MATRIX_OPS_X2D_PROD_USER_ID: "@ops-prod:example.org",
+        MATRIX_OPS_X2D_PROD_ACCESS_TOKEN: "tok-ops-prod",
+      } as NodeJS.ProcessEnv;
+
+      const target = resolveMatrixMigrationAccountTarget({
+        cfg,
+        env,
+        accountId: "ops-prod",
+      });
+
+      expect(target).not.toBeNull();
+      expect(target?.homeserver).toBe("https://matrix.example.org");
+      expect(target?.userId).toBe("@ops-prod:example.org");
+      expect(target?.accessToken).toBe("tok-ops-prod");
+    });
+  });
 });

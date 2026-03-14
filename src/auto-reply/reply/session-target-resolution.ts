@@ -1,22 +1,23 @@
 import { listAcpSessionEntries } from "../../acp/runtime/session-meta.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { callGateway } from "../../gateway/call.js";
-import { SESSION_ID_RE } from "../../sessions/session-id.js";
+import { normalizeSessionId, SESSION_ID_RE } from "../../sessions/session-id.js";
 
 function resolveAcpSessionKeySuffixToken(token: string): string | null {
   const trimmed = token.trim();
   if (!trimmed) {
     return null;
   }
-  if (SESSION_ID_RE.test(trimmed)) {
-    return trimmed;
+  const normalizedSessionId = normalizeSessionId(trimmed);
+  if (normalizedSessionId) {
+    return normalizedSessionId;
   }
   const lower = trimmed.toLowerCase();
   if (!lower.startsWith("acp:")) {
     return null;
   }
   const suffix = trimmed.slice("acp:".length).trim();
-  return SESSION_ID_RE.test(suffix) ? suffix : null;
+  return normalizeSessionId(suffix);
 }
 
 async function resolveSessionKeyViaGateway(token: string): Promise<string | null> {

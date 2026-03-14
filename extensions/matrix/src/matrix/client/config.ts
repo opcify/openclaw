@@ -7,6 +7,7 @@ import {
   requiresExplicitMatrixDefaultAccount,
   resolveMatrixDefaultOrOnlyAccountId,
 } from "openclaw/plugin-sdk/matrix";
+import { getMatrixScopedEnvVarNames } from "../../../../../src/infra/matrix-env-vars.js";
 import { getMatrixRuntime } from "../../runtime.js";
 import type { CoreConfig } from "../../types.js";
 import {
@@ -91,34 +92,7 @@ function resolveGlobalMatrixEnvConfig(env: NodeJS.ProcessEnv): MatrixEnvConfig {
   };
 }
 
-function resolveMatrixEnvAccountToken(accountId: string): string {
-  return Array.from(normalizeAccountId(accountId))
-    .map((char) =>
-      /[a-z0-9]/.test(char)
-        ? char.toUpperCase()
-        : `_X${char.codePointAt(0)?.toString(16).toUpperCase() ?? "00"}_`,
-    )
-    .join("");
-}
-
-export function getMatrixScopedEnvVarNames(accountId: string): {
-  homeserver: string;
-  userId: string;
-  accessToken: string;
-  password: string;
-  deviceId: string;
-  deviceName: string;
-} {
-  const token = resolveMatrixEnvAccountToken(accountId);
-  return {
-    homeserver: `MATRIX_${token}_HOMESERVER`,
-    userId: `MATRIX_${token}_USER_ID`,
-    accessToken: `MATRIX_${token}_ACCESS_TOKEN`,
-    password: `MATRIX_${token}_PASSWORD`, // pragma: allowlist secret
-    deviceId: `MATRIX_${token}_DEVICE_ID`,
-    deviceName: `MATRIX_${token}_DEVICE_NAME`,
-  };
-}
+export { getMatrixScopedEnvVarNames } from "../../../../../src/infra/matrix-env-vars.js";
 
 export function resolveScopedMatrixEnvConfig(
   accountId: string,
@@ -274,13 +248,13 @@ export function resolveMatrixConfigForAccount(
     scopedEnvValue: scopedEnv.homeserver,
     globalEnvValue: globalEnv.homeserver,
   });
-  const userId = resolveMatrixStringField({
-    matrix,
-    field: "userId",
-    accountValue: accountField("userId"),
-    scopedEnvValue: scopedEnv.userId,
-    globalEnvValue: globalEnv.userId,
-  });
+  const userIdSource =
+    accountField("userId") ||
+    scopedEnv.userId ||
+    (normalizedAccountId === DEFAULT_ACCOUNT_ID
+      ? readMatrixBaseConfigField(matrix, "userId") || globalEnv.userId || ""
+      : "");
+  const userId = userIdSource;
   const accessToken =
     resolveMatrixStringField({
       matrix,
@@ -367,7 +341,7 @@ export function resolveMatrixAuthContext(params?: {
     !hasScopedMatrixEnvConfig(explicitAccountId, env)
   ) {
     throw new Error(
-      `Matrix account "${explicitAccountId}" is not configured. Add channels.matrix.accounts.${explicitAccountId} or define scoped MATRIX_${resolveMatrixEnvAccountToken(explicitAccountId)}_* variables.`,
+      `Matrix account "${explicitAccountId}" is not configured. Add channels.matrix.accounts.${explicitAccountId} or define scoped ${getMatrixScopedEnvVarNames(explicitAccountId).accessToken.replace(/_ACCESS_TOKEN$/, "")}_* variables.`,
     );
   }
   const resolved = resolveMatrixConfigForAccount(cfg, effectiveAccountId, env);

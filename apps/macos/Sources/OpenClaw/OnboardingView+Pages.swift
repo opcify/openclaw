@@ -72,6 +72,29 @@ extension OnboardingView {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(Color.orange.opacity(0.06)))
                 .frame(maxWidth: 520)
+
+                self.onboardingCard(spacing: 8, padding: 14) {
+                    if self.securityNoticeAcknowledged {
+                        Label("Security notice acknowledged on this Mac.", systemImage: "checkmark.shield.fill")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(Color(nsColor: .systemGreen))
+                    } else {
+                        Toggle(
+                            isOn: Binding(
+                                get: { self.securityNoticeAcknowledged },
+                                set: { self.setSecurityNoticeAcknowledged($0) }))
+                        {
+                            Text("I understand the risks and want to continue.")
+                                .font(.callout.weight(.medium))
+                        }
+                        .toggleStyle(.checkbox)
+
+                        Text("You only need to acknowledge this once on this Mac.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: 520)
             }
             .padding(.top, 16)
         }

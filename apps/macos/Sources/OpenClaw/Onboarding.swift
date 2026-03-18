@@ -25,6 +25,7 @@ final class OnboardingController {
         if ProcessInfo.processInfo.isNixMode {
             // Nix mode is fully declarative; onboarding would suggest interactive setup that doesn't apply.
             UserDefaults.standard.set(true, forKey: "openclaw.onboardingSeen")
+            UserDefaults.standard.set(true, forKey: onboardingSecurityAcknowledgedKey)
             UserDefaults.standard.set(currentOnboardingVersion, forKey: onboardingVersionKey)
             AppStateStore.shared.onboardingSeen = true
             return
@@ -90,6 +91,7 @@ struct OnboardingView: View {
     @State var onboardingWizard = OnboardingWizardModel()
     @State var didLoadOnboardingSkills = false
     @State var localGatewayProbe: LocalGatewayProbe?
+    @State var securityNoticeAcknowledged: Bool
     @Bindable var state: AppState
     var permissionMonitor: PermissionMonitor
 
@@ -148,11 +150,25 @@ struct OnboardingView: View {
         self.activePageIndex == self.wizardPageIndex && !self.onboardingWizard.isComplete
     }
 
+    var isSecurityNoticeBlocking: Bool {
+        self.activePageIndex == 0 && !self.securityNoticeAcknowledged
+    }
+
     var canAdvance: Bool {
+        if self.isSecurityNoticeBlocking {
+            return false
+        }
         if self.activePageIndex == self.cliPageIndex {
             return self.cliInstalled && !self.installingCLI
         }
         return !self.isWizardBlocking
+    }
+
+    static func resolveSecurityNoticeAcknowledged(
+        onboardingSeen: Bool,
+        storedAcknowledgement: Bool) -> Bool
+    {
+        storedAcknowledgement || onboardingSeen
     }
 
     var devLinkCommand: String {
@@ -177,6 +193,10 @@ struct OnboardingView: View {
         self.state = state
         self.permissionMonitor = permissionMonitor
         self._gatewayDiscovery = State(initialValue: discoveryModel)
+        self._securityNoticeAcknowledged = State(
+            initialValue: Self.resolveSecurityNoticeAcknowledged(
+                onboardingSeen: state.onboardingSeen,
+                storedAcknowledgement: UserDefaults.standard.bool(forKey: onboardingSecurityAcknowledgedKey)))
         self._onboardingChatModel = State(
             initialValue: OpenClawChatViewModel(
                 sessionKey: "onboarding",
